@@ -1,0 +1,26 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-ivory text-ink antialiased;
+  background-image: radial-gradient(circle at 10% 10%, rgba(200, 169, 119, 0.12), transparent 32%),
+    radial-gradient(circle at 85% 0%, rgba(134, 112, 166, 0.14), transparent 40%);
+  min-height: 100vh;
+}
+
+a {
+  @apply transition-colors;
+}
+
+.prose-content h2 {
+  @apply mb-4 mt-8 text-2xl font-medium text-ink;
+}
+
+.prose-content p {
+  @apply mb-4 leading-8 text-ink/85;
+}
