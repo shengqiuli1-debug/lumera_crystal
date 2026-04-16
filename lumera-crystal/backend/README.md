@@ -22,6 +22,18 @@ python -m scripts.seed
 uvicorn app.main:app --reload
 ```
 
+## uv 依赖管理
+
+使用 uv 安装依赖：
+```bash
+./scripts/uv_sync.sh
+```
+
+生成锁定文件（requirements.lock）：
+```bash
+./scripts/uv_lock.sh
+```
+
 Admin bootstrap:
 
 ```bash
@@ -45,6 +57,75 @@ Contact auto-reply:
 - SMTP envs:
   - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USERNAME`, `SMTP_PASSWORD`
   - `SMTP_USE_TLS`, `SMTP_FROM_EMAIL`, `SMTP_FROM_NAME`
+
+## 自然语言邮件指令
+
+当输入文本以“发送邮件给”开头时，会触发邮件发送流程。
+
+示例：
+- 发送邮件给 li@example.com，告诉他明天下午3点开会，语气正式一点
+- 发送邮件给 王总，主题是项目延期说明，内容是由于接口联调问题，预计延期到周五
+- 发送邮件给 test@example.com，内容：报价单已更新，请查收
+
+接口：
+```
+POST /api/v1/ai/mail/command
+{
+  "text": "发送邮件给 王总，主题是项目延期说明，内容是由于接口联调问题，预计延期到周五"
+}
+```
+
+客服对话接口（带上下文）：
+```
+POST /api/v1/ai/support-chat
+{
+  "text": "我在上海闵行区",
+  "conversation_id": "可选，会话复用"
+}
+```
+
+配置（.env）：
+- `MAIL_CONTACTS_PATH` 联系人映射 JSON 文件路径（默认 `config/mail_contacts.json`）
+- `LLM_PROVIDER` 本地模型提供方：`openai` 或 `ollama`
+- `LLM_BASE_URL` 本地模型服务地址，例如 `http://localhost:11434` 或 `http://localhost:8001`
+- `LLM_API_KEY` （OpenAI-compatible 可选）
+- `LLM_MODEL` 模型名称
+- `LLM_TIMEOUT_SECONDS` 请求超时
+- `CHAT_HISTORY_LIMIT` 历史消息窗口大小（默认 12）
+- `CHAT_HISTORY_FALLBACK` 历史存储 fallback（默认 `none`，可选 `memory`）
+- `CAPABILITY_NEWS_ENABLED` 是否启用资讯能力（最小必填）
+- `CAPABILITY_NEWS_PROVIDER` 资讯能力当前使用的供应商标识，例如 `juhe`（最小必填）
+- `CAPABILITY_NEWS_DEFAULT_LIMIT` 资讯能力默认返回条数（可选，不填则默认 5，最大 10）
+- `CAPABILITY_NEWS_MAX_AGE_DAYS` 资讯能力“最新”判定的最大天数（可选，不填则默认 30 天）
+- `PROVIDER_JUHE_BASE_URL` 聚合数据供应商基础地址（最小必填）
+- `PROVIDER_JUHE_API_KEY` 聚合数据供应商 API Key（最小必填）
+- `PROVIDER_JUHE_NEWS_PATH` 聚合数据的资讯查询路径（最小必填）
+- `PROVIDER_JUHE_TIMEOUT_SECONDS` 聚合数据接口超时时间（秒，可选，不填则默认 10）
+- `PROVIDER_JUHE_KEY_HEADER` API key header（可选；聚合数据默认走 query 参数，可留空）
+- `PROVIDER_JUHE_KEY_PREFIX` API key 前缀（可选；聚合数据默认走 query 参数，可留空）
+- `PROVIDER_JUHE_KEY_QUERY_PARAM` API key 在 query 中的参数名（聚合数据默认 `key`）
+- `PROVIDER_JUHE_QUERY_PARAM` 资讯关键词在 query 中的参数名（聚合数据默认 `word`）
+
+已废弃（Deprecated）：
+- `NEWS_API_ENABLED`
+- `NEWS_API_BASE_URL`
+- `NEWS_API_PATH`
+- `NEWS_API_KEY`
+- `NEWS_API_TIMEOUT_SECONDS`
+- `NEWS_API_KEY_HEADER`
+- `NEWS_API_KEY_PREFIX`
+- `NEWS_API_DEFAULT_LIMIT`
+
+联系人映射示例：
+```
+{
+  "王总": "boss@example.com"
+}
+```
+
+说明：
+- 规则优先解析“主题/内容”，缺失时调用本地模型补全。
+- 若联系人名未映射邮箱，返回明确错误。
 
 ## Lightweight Shop Module
 
