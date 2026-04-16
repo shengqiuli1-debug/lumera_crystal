@@ -75,6 +75,7 @@ docker compose exec backend python -m scripts.seed
 - `POST /api/v1/contact`
 - `POST /api/v1/newsletter`
 - `GET /api/v1/ai/health` (placeholder)
+- `POST /api/v1/ai/mail/command` (自然语言触发邮件发送)
 - Shop APIs:
   - `POST /api/v1/shop/users`
   - `GET /api/v1/shop/products`
@@ -194,6 +195,42 @@ Future extension directions:
 2. Crystal Q&A assistant with domain prompt templates
 3. RAG retrieval over brand knowledge/docs
 4. AI-assisted blog and product copy generation
+
+## 自然语言邮件指令
+
+当输入文本以“发送邮件给”开头时，会触发邮件发送流程。
+
+示例：
+- 发送邮件给 li@example.com，告诉他明天下午3点开会，语气正式一点
+- 发送邮件给 王总，主题是项目延期说明，内容是由于接口联调问题，预计延期到周五
+- 发送邮件给 test@example.com，内容：报价单已更新，请查收
+
+请求：
+```
+POST /api/v1/ai/mail/command
+{
+  "text": "发送邮件给 王总，主题是项目延期说明，内容是由于接口联调问题，预计延期到周五"
+}
+```
+
+配置（.env）：
+- `MAIL_CONTACTS_PATH` 联系人映射 JSON 文件路径（默认 `config/mail_contacts.json`）
+- `LLM_PROVIDER` 本地模型提供方：`openai` 或 `ollama`
+- `LLM_BASE_URL` 本地模型服务地址，例如 `http://localhost:11434` 或 `http://localhost:8001`
+- `LLM_API_KEY` （OpenAI-compatible 可选）
+- `LLM_MODEL` 模型名称
+- `LLM_TIMEOUT_SECONDS` 请求超时
+
+联系人映射示例：
+```
+{
+  "王总": "boss@example.com"
+}
+```
+
+说明：
+- 规则优先解析“主题/内容”，缺失时调用本地模型补全。
+- 若联系人名未映射邮箱，返回明确错误。
 
 ## Notes
 

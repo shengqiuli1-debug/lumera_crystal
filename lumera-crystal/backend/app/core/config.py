@@ -31,6 +31,55 @@ class Settings(BaseSettings):
     smtp_from_email: str = "no-reply@lumeracrystal.com"
     smtp_from_name: str = "LUMERA CRYSTAL"
 
+    mail_contacts_path: str = "config/mail_contacts.json"
+
+    llm_provider: str | None = None  # "openai" or "ollama"
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
+    llm_timeout_seconds: int = 20
+
+    chat_history_limit: int = 12
+    chat_history_fallback: str = "none"  # "none" | "memory"
+    support_chat_debug: bool = False
+
+    capability_news_enabled: bool = False
+    capability_news_provider: str = "juhe"
+    capability_news_default_limit: int = 5
+    capability_news_max_age_days: int = 30
+
+    capability_weather_enabled: bool = False
+    capability_exchange_rate_enabled: bool = False
+
+    weather_api_base_url: str | None = None
+    weather_api_key: str | None = None
+    weather_api_path: str | None = None
+    weather_api_timeout_seconds: int = 10
+
+    exchange_rate_api_base_url: str | None = None
+    exchange_rate_api_key: str | None = None
+    exchange_rate_api_path: str | None = None
+    exchange_rate_api_timeout_seconds: int = 10
+
+    provider_juhe_base_url: str | None = None
+    provider_juhe_api_key: str | None = None
+    provider_juhe_news_path: str | None = None
+    provider_juhe_timeout_seconds: int = 10
+    provider_juhe_key_header: str = ""
+    provider_juhe_key_prefix: str = ""
+    provider_juhe_key_query_param: str = "key"
+    provider_juhe_query_param: str = "word"
+
+    # Deprecated news config (keep for short-term compatibility)
+    news_api_enabled: bool = False
+    news_api_base_url: str | None = None
+    news_api_path: str | None = None
+    news_api_key: str | None = None
+    news_api_timeout_seconds: int = 10
+    news_api_key_header: str = "Authorization"
+    news_api_key_prefix: str = "Bearer"
+    news_api_default_limit: int = 5
+
     database_url: str = "postgresql+psycopg://postgres:123456@localhost:6543/lumera"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

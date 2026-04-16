@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Blocks, FileText, Gem, LayoutDashboard, Mail, Send, Settings } from "lucide-react";
+import { Blocks, FileText, Gem, LayoutDashboard, Mail, MessageCircle, Send, Settings } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,6 +12,7 @@ const navItems = [
   { href: "/admin/categories", label: "分类管理", icon: Blocks },
   { href: "/admin/posts", label: "博客管理", icon: FileText },
   { href: "/admin/messages", label: "联系留言", icon: Mail },
+  { href: "/admin/support-chat", label: "客服对话", icon: MessageCircle },
   { href: "/admin/newsletter", label: "Newsletter", icon: Send },
   { href: "/admin/settings", label: "设置", icon: Settings },
 ];

@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Backend Uvicorn" type="PythonConfigurationType" factoryName="Python">
+    <module name="lumera-crystal" />
+    <option name="SCRIPT_NAME" value="/Users/qiuqiuqiu/PycharmProjects/lumera_crystal/lumera-crystal/backend/debug_run.py" />
+    <option name="WORKING_DIRECTORY" value="/Users/qiuqiuqiu/PycharmProjects/lumera_crystal/lumera-crystal/backend" />
+    <option name="PARENT_ENVS" value="true" />
+    <option name="SDK_HOME" value="/Users/qiuqiuqiu/PycharmProjects/lumera_crystal/lumera-crystal/backend/.venv/bin/python" />
+    <option name="SDK_NAME" value="Python (backend .venv)" />
+    <envs>
+      <env name="PYTHONUNBUFFERED" value="1" />
+    </envs>
+    <method v="2" />
+  </configuration>
+</component>
