@@ -1,3 +1,7 @@
 {
-  "/admin/support-chat/page": "app/admin/support-chat/page.js"
+  "/blog/page": "app/blog/page.js",
+  "/(shop)/shop/page": "app/(shop)/shop/page.js",
+  "/(shop)/cart/page": "app/(shop)/cart/page.js",
+  "/categories/[slug]/page": "app/categories/[slug]/page.js",
+  "/page": "app/page.js"
 }

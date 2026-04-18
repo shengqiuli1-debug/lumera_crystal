@@ -11,7 +11,9 @@ from app.schemas.shop import (
     RestockCompleteRequest,
     RestockRequestRead,
     ShopOrderCreate,
+    ShopLogisticsTraceRead,
     ShopOrderListResponse,
+    ShopPaymentRead,
     ShopOrderPayRequest,
     ShopOrderRead,
     ShopOrderUpdate,
@@ -86,7 +88,24 @@ def update_order(order_id: int, payload: ShopOrderUpdate, db: Session = Depends(
 
 @router.post("/orders/{order_id}/pay", response_model=ShopOrderRead)
 def pay_order(order_id: int, payload: ShopOrderPayRequest, db: Session = Depends(get_db)) -> ShopOrderRead:
-    return _service(db).pay_order(order_id=order_id, payment_reference=payload.payment_reference)
+    return _service(db).pay_order(
+        order_id=order_id,
+        payment_reference=payload.payment_reference,
+        payment_method=payload.payment_method,
+        payer_name=payload.payer_name,
+        coupon_code=payload.coupon_code,
+        simulate_failure=payload.simulate_failure,
+    )
+
+
+@router.get("/orders/{order_id}/payments", response_model=list[ShopPaymentRead])
+def list_order_payments(order_id: int, db: Session = Depends(get_db)) -> list[ShopPaymentRead]:
+    return _service(db).list_order_payments(order_id=order_id)
+
+
+@router.get("/orders/{order_id}/logistics", response_model=ShopLogisticsTraceRead)
+def get_order_logistics(order_id: int, db: Session = Depends(get_db)) -> ShopLogisticsTraceRead:
+    return ShopLogisticsTraceRead(**_service(db).get_order_logistics(order_id=order_id))
 
 
 @router.get("/users/{user_id}/orders", response_model=ShopOrderListResponse)

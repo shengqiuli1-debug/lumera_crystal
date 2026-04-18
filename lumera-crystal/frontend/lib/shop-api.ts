@@ -1,6 +1,9 @@
 import type {
   ShopOrder,
   ShopOrderListResponse,
+  ShopLogisticsTrace,
+  ShopPayment,
+  ShopPaymentMethod,
   ShopProductInventoryListResponse,
   ShopRecommendationResponse,
   ShopReportSummary,
@@ -48,11 +51,32 @@ export function createShopOrder(payload: {
   return shopFetch<ShopOrder>("/shop/orders", { method: "POST", body: payload });
 }
 
-export function payShopOrder(orderId: number, paymentReference?: string) {
-  return shopFetch<ShopOrder>(`/shop/orders/${orderId}/pay`, {
+export function payShopOrder(payload: {
+  orderId: number;
+  paymentReference?: string;
+  paymentMethod: ShopPaymentMethod;
+  payerName?: string;
+  couponCode?: string;
+  simulateFailure?: boolean;
+}) {
+  return shopFetch<ShopOrder>(`/shop/orders/${payload.orderId}/pay`, {
     method: "POST",
-    body: { payment_reference: paymentReference ?? null },
+    body: {
+      payment_reference: payload.paymentReference ?? null,
+      payment_method: payload.paymentMethod,
+      payer_name: payload.payerName ?? null,
+      coupon_code: payload.couponCode ?? null,
+      simulate_failure: Boolean(payload.simulateFailure),
+    },
   });
+}
+
+export function listOrderPayments(orderId: number) {
+  return shopFetch<ShopPayment[]>(`/shop/orders/${orderId}/payments`);
+}
+
+export function getOrderLogistics(orderId: number) {
+  return shopFetch<ShopLogisticsTrace>(`/shop/orders/${orderId}/logistics`);
 }
 
 export function listUserOrders(userId: number, page = 1, pageSize = 20) {

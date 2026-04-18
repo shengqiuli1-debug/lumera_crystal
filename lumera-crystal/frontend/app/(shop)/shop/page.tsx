@@ -5,9 +5,9 @@ export default function ShopPage() {
   return (
     <div className="space-y-8">
       <SectionTitle
-        eyebrow="Shop"
-        title="轻量商城控制台"
-        description="基于当前系统快速搭建的商城闭环演示：库存、订单、支付、推荐、报表、积分优惠。"
+        eyebrow="Orders"
+        title="订单中心"
+        description="查看订单历史、待支付订单、已支付订单，并在这里完成支付。"
       />
       <ShopConsole />
     </div>

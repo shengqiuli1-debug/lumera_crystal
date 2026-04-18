@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from sqlalchemy import and_, asc, desc, func, select
 from sqlalchemy.orm import Session, selectinload
 

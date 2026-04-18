@@ -83,6 +83,8 @@ docker compose exec backend python -m scripts.seed
   - `POST /api/v1/shop/orders`
   - `PATCH /api/v1/shop/orders/{order_id}`
   - `POST /api/v1/shop/orders/{order_id}/pay`
+  - `GET /api/v1/shop/orders/{order_id}/payments`
+  - `GET /api/v1/shop/orders/{order_id}/logistics`
   - `GET /api/v1/shop/users/{user_id}/orders`
   - `GET /api/v1/shop/users/{user_id}/recommendations`
   - `GET /api/v1/shop/reports/summary?range=daily|weekly|monthly`
@@ -155,10 +157,33 @@ This project now includes a lightweight mall flow without heavy refactor:
 - auto restock request creation (`AUTO_RESTOCK_QUANTITY`) via supplier service stub
 - restock complete callback API to restore stock and auto on-shelf (`active`)
 - order + payment + shipping request chain
+- payment attempt records (method, status, failure reason, reference)
 - points earning/redeeming (`POINTS_EARN_RATE`, default `10`)
 - coupon application
 - behavior-based recommendations
 - daily/weekly/monthly report summary APIs
+
+## Standalone Logistics Service
+
+物流系统已拆分为独立服务（不在主后端进程中）：
+
+- 目录：`logistics-service`
+- 启动脚本：`./start_logistics.sh`
+- 默认端口：`8010`
+- 看板页面：`http://localhost:8010/dashboard`
+- 推荐使用独立数据库：`lumera_logistics`（通过 `LOGISTICS_DATABASE_URL` 配置）
+- 看板模块：客户暂存单、计划订单、运输订单、调度任务（四节点）
+- 关键接口：
+  - `GET /api/v1/logistics/health`
+  - `POST /api/v1/logistics/traces`
+  - `GET /api/v1/logistics/orders/{order_no}`
+  - `POST /api/v1/logistics/traces/{trace_no}/advance`
+
+主后端在订单支付成功后会调用物流服务创建轨迹（可通过 `backend/.env` 控制）：
+
+- `LOGISTICS_SERVICE_ENABLED=true|false`
+- `LOGISTICS_SERVICE_BASE_URL=http://localhost:8010/api/v1/logistics`
+- `LOGISTICS_SERVICE_TIMEOUT_SECONDS=8`
 
 Added tables:
 

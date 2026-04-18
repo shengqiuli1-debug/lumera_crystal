@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
+import json
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from fastapi import HTTPException, status
@@ -119,6 +123,44 @@ class ShopService:
     def _order_no(self) -> str:
         return f"ORD-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:8].upper()}"
 
+    def _payment_no(self) -> str:
+        return f"PAY-{datetime.now(timezone.utc).strftime('%Y%m%d')}-{uuid4().hex[:10].upper()}"
+
+    def _call_logistics(self, *, method: str, path: str, payload: dict | None = None) -> dict:
+        base = settings.logistics_service_base_url.rstrip("/") + "/"
+        url = urljoin(base, path.lstrip("/"))
+        body = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = Request(
+            url,
+            data=body,
+            method=method.upper(),
+            headers={"Content-Type": "application/json"} if body is not None else {},
+        )
+        try:
+            with urlopen(request, timeout=settings.logistics_service_timeout_seconds) as response:
+                raw = response.read().decode("utf-8") if response.readable() else ""
+                return json.loads(raw) if raw else {}
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="ignore")
+            raise HTTPException(status_code=exc.code, detail=detail or "Logistics service error") from exc
+        except URLError as exc:
+            raise HTTPException(status_code=503, detail=f"Logistics service unavailable: {exc.reason}") from exc
+
+    def _ensure_logistics_trace(self, order: ShopOrder) -> None:
+        if not settings.logistics_service_enabled:
+            return
+        payload = {
+            "order_no": order.order_no,
+            "order_id": order.id,
+            "carrier": "mock-express",
+            "tracking_no": f"TRK-{order.order_no}",
+        }
+        try:
+            self._call_logistics(method="POST", path="/traces", payload=payload)
+        except HTTPException:
+            # Do not fail payment flow if logistics service is temporarily unavailable.
+            pass
+
     def create_order(
         self,
         *,
@@ -233,7 +275,16 @@ class ShopService:
             if open_alert:
                 self.repo.resolve_alert(open_alert)
 
-    def pay_order(self, *, order_id: int, payment_reference: str | None = None):
+    def pay_order(
+        self,
+        *,
+        order_id: int,
+        payment_reference: str | None = None,
+        payment_method: str = "mock",
+        payer_name: str | None = None,
+        coupon_code: str | None = None,
+        simulate_failure: bool = False,
+    ):
         order = self.repo.get_order(order_id)
         if not order:
             raise HTTPException(status_code=404, detail="Order not found")
@@ -241,6 +292,49 @@ class ShopService:
             return order
         if order.status == "cancelled":
             raise HTTPException(status_code=400, detail="Cancelled order cannot be paid")
+
+        coupon: Coupon | None = None
+        if coupon_code and coupon_code.strip():
+            raw_coupon = self.repo.get_coupon_by_code(coupon_code.strip())
+            if not raw_coupon:
+                raise HTTPException(status_code=400, detail="Coupon does not exist")
+            coupon = self._assert_coupon_valid(raw_coupon)
+        elif order.coupon_code:
+            coupon = self._assert_coupon_valid(self.repo.get_coupon_by_code(order.coupon_code))
+
+        pricing = calculate_order_pricing(
+            subtotal=money(order.subtotal_amount),
+            coupon=coupon,
+            points_to_use=order.points_used,
+            user_points_balance=order.points_used,
+        )
+        order.points_used = pricing.points_used
+        order.discount_amount = pricing.discount
+        order.total_amount = pricing.total
+        order.coupon_code = coupon.code if coupon else None
+
+        payload_text = (
+            f"payer_name={payer_name or ''};"
+            f"payment_reference={payment_reference or ''};"
+            f"method={payment_method};"
+            f"coupon_code={order.coupon_code or ''};"
+            f"simulate_failure={simulate_failure}"
+        )
+        payment_attempt = self.repo.create_payment_attempt(
+            payment_no=self._payment_no(),
+            order_id=order.id,
+            method=payment_method,
+            amount=money(order.total_amount),
+            payment_reference=payment_reference or "",
+            raw_payload=payload_text,
+        )
+
+        if simulate_failure:
+            self.repo.mark_payment_failed(payment_attempt, reason="Simulated payment failure by request")
+            order.payment_status = "failed"
+            self.repo.db.add(order)
+            self.repo.db.commit()
+            return self.repo.get_order(order.id) or order
 
         product_ids = [item.product_id for item in order.items]
         products = {item.id: item for item in self.repo.lock_products_by_ids(product_ids)}
@@ -275,10 +369,12 @@ class ShopService:
         order.shipping_status = "requested"
         order.paid_at = datetime.now(timezone.utc)
         self.repo.db.add(order)
+        self.repo.mark_payment_succeeded(payment_attempt)
 
         payload = f"order_no={order.order_no}, payment_ref={payment_reference or ''}"
         self.repo.add_shipment_request(order_id=order.id, payload=payload)
         self.repo.db.commit()
+        self._ensure_logistics_trace(order)
         refreshed = self.repo.get_order(order.id) or order
         return refreshed
 
@@ -286,6 +382,20 @@ class ShopService:
         if not self.repo.get_user(user_id):
             raise HTTPException(status_code=404, detail="User not found")
         return self.repo.list_orders_by_user(user_id=user_id, page=page, page_size=page_size)
+
+    def list_order_payments(self, *, order_id: int):
+        order = self.repo.get_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return self.repo.list_payments_by_order(order_id=order_id)
+
+    def get_order_logistics(self, *, order_id: int) -> dict:
+        order = self.repo.get_order(order_id)
+        if not order:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if not settings.logistics_service_enabled:
+            raise HTTPException(status_code=503, detail="Logistics service is disabled")
+        return self._call_logistics(method="GET", path=f"/orders/{order.order_no}")
 
     def record_view(self, *, user_id: int, product_id: int) -> None:
         if not self.repo.get_user(user_id):

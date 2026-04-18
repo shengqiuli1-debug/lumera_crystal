@@ -15,6 +15,7 @@ from app.models.shop import (
     ShipmentRequest,
     ShopOrder,
     ShopOrderItem,
+    ShopPayment,
     ShopUser,
     UserBehaviorEvent,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "Coupon",
     "ShopOrder",
     "ShopOrderItem",
+    "ShopPayment",
     "InventoryAlert",
     "RestockRequest",
     "ShipmentRequest",

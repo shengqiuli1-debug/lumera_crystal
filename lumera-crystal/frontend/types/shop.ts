@@ -32,6 +32,22 @@ export interface ShopOrderItem {
   line_total: string;
 }
 
+export type ShopPaymentMethod = "alipay" | "wechat_pay" | "bank_card" | "mock";
+export type ShopPaymentAttemptStatus = "initiated" | "succeeded" | "failed";
+
+export interface ShopPayment {
+  id: number;
+  payment_no: string;
+  order_id: number;
+  method: ShopPaymentMethod;
+  amount: string;
+  status: ShopPaymentAttemptStatus;
+  payment_reference: string;
+  failure_reason: string;
+  paid_at?: string | null;
+  created_at: string;
+}
+
 export interface ShopOrder {
   id: number;
   order_no: string;
@@ -49,6 +65,7 @@ export interface ShopOrder {
   created_at: string;
   updated_at: string;
   items: ShopOrderItem[];
+  payments: ShopPayment[];
 }
 
 export interface ShopOrderListResponse {
@@ -71,4 +88,24 @@ export interface ShopReportSummary {
   paid_order_count: number;
   low_stock_product_count: number;
   total_product_count: number;
+}
+
+export interface ShopLogisticsEvent {
+  step_code: string;
+  step_label: string;
+  detail: string;
+  occurred_at: string;
+}
+
+export interface ShopLogisticsTrace {
+  trace_no: string;
+  order_no: string;
+  order_id?: number | null;
+  carrier: string;
+  tracking_no: string;
+  current_step: string;
+  current_label: string;
+  created_at: string;
+  updated_at: string;
+  events: ShopLogisticsEvent[];
 }

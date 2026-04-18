@@ -63,6 +63,12 @@ class ShopOrder(TimestampMixin, Base):
 
     user = relationship("ShopUser", back_populates="orders")
     items = relationship("ShopOrderItem", back_populates="order", cascade="all, delete-orphan")
+    payments = relationship(
+        "ShopPayment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="ShopPayment.created_at.desc()",
+    )
     shipment_requests = relationship("ShipmentRequest", back_populates="order", cascade="all, delete-orphan")
 
 
@@ -80,6 +86,23 @@ class ShopOrderItem(Base):
     product = relationship("Product")
 
     __table_args__ = (UniqueConstraint("order_id", "product_id", name="uq_shop_order_items_order_product"),)
+
+
+class ShopPayment(TimestampMixin, Base):
+    __tablename__ = "shop_payments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    payment_no: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
+    order_id: Mapped[int] = mapped_column(ForeignKey("shop_orders.id", ondelete="CASCADE"), nullable=False, index=True)
+    method: Mapped[str] = mapped_column(String(30), nullable=False, default="mock")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0"))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="initiated", index=True)
+    payment_reference: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    failure_reason: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    raw_payload: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    order = relationship("ShopOrder", back_populates="payments")
 
 
 class InventoryAlert(TimestampMixin, Base):
@@ -137,4 +160,5 @@ class UserBehaviorEvent(TimestampMixin, Base):
 
 
 Index("ix_shop_orders_user_paid_at", ShopOrder.user_id, ShopOrder.paid_at)
+Index("ix_shop_payments_order_created_at", ShopPayment.order_id, ShopPayment.created_at)
 Index("ix_restock_requests_product_status", RestockRequest.product_id, RestockRequest.status)

@@ -2,87 +2,42 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import {
-  createShopOrder,
-  createShopUser,
-  getRecommendations,
-  getSalesSummary,
-  listShopProducts,
-  listUserOrders,
-  payShopOrder,
-  trackProductView,
-} from "@/lib/shop-api";
-import type { ShopOrder, ShopProductInventory, ShopReportSummary, ShopUser } from "@/types/shop";
-
-type CartLine = {
-  product_id: number;
-  quantity: number;
-};
+import { createShopUser, getOrderLogistics, listUserOrders, payShopOrder } from "@/lib/shop-api";
+import type { ShopLogisticsTrace, ShopOrder, ShopPaymentMethod, ShopUser } from "@/types/shop";
 
 const USER_STORAGE_KEY = "lumera_shop_user";
 
-export function ShopConsole() {
-  const [products, setProducts] = useState<ShopProductInventory[]>([]);
-  const [orders, setOrders] = useState<ShopOrder[]>([]);
-  const [recommendations, setRecommendations] = useState<Array<{ product_id: number; score: number }>>([]);
-  const [summary, setSummary] = useState<ShopReportSummary | null>(null);
-  const [rangeType, setRangeType] = useState<"daily" | "weekly" | "monthly">("daily");
+type OrderFilter = "all" | "pending" | "paid";
 
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [shippingAddress, setShippingAddress] = useState("上海市浦东新区世纪大道 100 号");
-  const [couponCode, setCouponCode] = useState("");
-  const [pointsToUse, setPointsToUse] = useState(0);
+export function ShopConsole() {
+  const [orders, setOrders] = useState<ShopOrder[]>([]);
   const [user, setUser] = useState<ShopUser | null>(null);
   const [name, setName] = useState("体验用户");
   const [email, setEmail] = useState("demo.user@example.com");
   const [toast, setToast] = useState<string>("");
   const [busy, setBusy] = useState(false);
 
-  const productMap = useMemo(() => new Map(products.map((item) => [item.id, item])), [products]);
+  const [orderFilter, setOrderFilter] = useState<OrderFilter>("all");
+  const [payingOrderId, setPayingOrderId] = useState<number | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<ShopPaymentMethod>("wechat_pay");
+  const [payerName, setPayerName] = useState("体验用户");
+  const [payCouponCode, setPayCouponCode] = useState("");
+  const [logisticsMap, setLogisticsMap] = useState<Record<number, ShopLogisticsTrace>>({});
+  const [loadingLogisticsOrderId, setLoadingLogisticsOrderId] = useState<number | null>(null);
 
-  const cartTotal = useMemo(() => {
-    return cart.reduce((sum, line) => {
-      const product = productMap.get(line.product_id);
-      if (!product) return sum;
-      return sum + Number(product.price) * line.quantity;
-    }, 0);
-  }, [cart, productMap]);
+  const filteredOrders = useMemo(() => {
+    if (orderFilter === "pending") return orders.filter((item) => item.payment_status !== "paid");
+    if (orderFilter === "paid") return orders.filter((item) => item.payment_status === "paid");
+    return orders;
+  }, [orders, orderFilter]);
 
-  const loadBaseData = useCallback(async (currentUser: ShopUser | null) => {
-    const [productResult, reportResult] = await Promise.allSettled([
-      listShopProducts(1, 50),
-      getSalesSummary(rangeType),
-    ]);
+  const pendingCount = useMemo(() => orders.filter((item) => item.payment_status !== "paid").length, [orders]);
+  const paidCount = useMemo(() => orders.filter((item) => item.payment_status === "paid").length, [orders]);
 
-    if (productResult.status === "fulfilled") {
-      setProducts(productResult.value.items);
-    } else {
-      setToast(
-        productResult.reason instanceof Error
-          ? `商品数据加载失败：${productResult.reason.message}`
-          : "商品数据加载失败，请检查后端服务。"
-      );
-    }
-
-    if (reportResult.status === "fulfilled") {
-      setSummary(reportResult.value);
-    } else {
-      setSummary(null);
-      setToast("报表暂时不可用，已降级为可下单模式。请先完成后端商城迁移。");
-    }
-
-    if (!currentUser) return;
-    const [orderResult, recResult] = await Promise.allSettled([
-      listUserOrders(currentUser.id),
-      getRecommendations(currentUser.id, 6),
-    ]);
-    if (orderResult.status === "fulfilled") {
-      setOrders(orderResult.value.items);
-    }
-    if (recResult.status === "fulfilled") {
-      setRecommendations(recResult.value.items);
-    }
-  }, [rangeType]);
+  const refreshOrders = useCallback(async (userId: number) => {
+    const orderResult = await listUserOrders(userId, 1, 50);
+    setOrders(orderResult.items);
+  }, []);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(USER_STORAGE_KEY);
@@ -90,70 +45,33 @@ export function ShopConsole() {
       try {
         const parsed = JSON.parse(raw) as ShopUser;
         setUser(parsed);
+        setName(parsed.name);
+        setEmail(parsed.email);
+        setPayerName(parsed.name);
+        void refreshOrders(parsed.id);
       } catch {
         window.localStorage.removeItem(USER_STORAGE_KEY);
       }
     }
-  }, []);
-
-  useEffect(() => {
-    void loadBaseData(user);
-  }, [loadBaseData, user]);
+  }, [refreshOrders]);
 
   async function ensureUser() {
     if (user) return user;
     const created = await createShopUser({ name: name.trim(), email: email.trim() });
     setUser(created);
+    setPayerName(created.name);
     window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(created));
     return created;
   }
 
-  function toggleCart(productId: number) {
-    setCart((prev) => {
-      const found = prev.find((line) => line.product_id === productId);
-      if (found) {
-        return prev.filter((line) => line.product_id !== productId);
-      }
-      return [...prev, { product_id: productId, quantity: 1 }];
-    });
-  }
-
-  function updateQuantity(productId: number, quantity: number) {
-    setCart((prev) => prev.map((line) => (line.product_id === productId ? { ...line, quantity: Math.max(1, quantity) } : line)));
-  }
-
-  async function handleView(productId: number) {
-    if (!user) return;
-    try {
-      await trackProductView(user.id, productId);
-      const rec = await getRecommendations(user.id, 6);
-      setRecommendations(rec.items);
-    } catch {
-      // ignore analytics errors
-    }
-  }
-
-  async function handleCreateOrder() {
-    if (!cart.length) {
-      setToast("请先选择至少一个商品。");
-      return;
-    }
+  async function handleActivateMyOrders() {
     setBusy(true);
     try {
       const currentUser = await ensureUser();
-      const created = await createShopOrder({
-        user_id: currentUser.id,
-        shipping_address: shippingAddress,
-        coupon_code: couponCode || undefined,
-        points_to_use: pointsToUse,
-        items: cart,
-      });
-      setToast(`订单已创建：${created.order_no}`);
-      setCart([]);
-      const orderRes = await listUserOrders(currentUser.id);
-      setOrders(orderRes.items);
+      await refreshOrders(currentUser.id);
+      setToast("已进入订单中心。");
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "创建订单失败");
+      setToast(error instanceof Error ? error.message : "加载订单失败");
     } finally {
       setBusy(false);
     }
@@ -162,18 +80,23 @@ export function ShopConsole() {
   async function handlePayOrder(orderId: number) {
     setBusy(true);
     try {
-      const paid = await payShopOrder(orderId, `PAY-${Date.now()}`);
-      setToast(`支付成功：${paid.order_no}，已触发库存扣减与发货请求`);
-      if (user) {
-        const [orderRes, recRes] = await Promise.all([
-          listUserOrders(user.id),
-          getRecommendations(user.id, 6),
-        ]);
-        setOrders(orderRes.items);
-        setRecommendations(recRes.items);
+      const paid = await payShopOrder({
+        orderId,
+        paymentReference: `PAY-${Date.now()}`,
+        paymentMethod,
+        payerName: payerName.trim() || undefined,
+        couponCode: payCouponCode.trim() || undefined,
+        simulateFailure: false,
+      });
+      if (paid.payment_status === "paid") {
+        setToast(`支付成功：${paid.order_no}`);
+      } else {
+        setToast(`支付失败：${paid.order_no}，可调整后重试`);
       }
-      const productRes = await listShopProducts(1, 50);
-      setProducts(productRes.items);
+      const currentUser = await ensureUser();
+      await refreshOrders(currentUser.id);
+      setPayingOrderId(null);
+      setPayCouponCode("");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "支付失败");
     } finally {
@@ -181,132 +104,200 @@ export function ShopConsole() {
     }
   }
 
+  async function handleLoadLogistics(orderId: number) {
+    setLoadingLogisticsOrderId(orderId);
+    try {
+      const trace = await getOrderLogistics(orderId);
+      setLogisticsMap((prev) => ({ ...prev, [orderId]: trace }));
+      setToast(`已加载物流信息：${trace.current_label}`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "物流信息加载失败");
+    } finally {
+      setLoadingLogisticsOrderId(null);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-mist/70 bg-white/85 p-5">
-        <h3 className="mb-3 text-base font-semibold text-ink">用户与下单设置</h3>
-        <div className="grid gap-3 md:grid-cols-2">
-          <input className="rounded-lg border border-mist px-3 py-2 text-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="用户姓名" />
-          <input className="rounded-lg border border-mist px-3 py-2 text-sm" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="用户邮箱" />
-          <input className="rounded-lg border border-mist px-3 py-2 text-sm md:col-span-2" value={shippingAddress} onChange={(e) => setShippingAddress(e.target.value)} placeholder="收货地址" />
-          <input className="rounded-lg border border-mist px-3 py-2 text-sm" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} placeholder="优惠券代码（可选）" />
-          <input className="rounded-lg border border-mist px-3 py-2 text-sm" type="number" min={0} value={pointsToUse} onChange={(e) => setPointsToUse(Number(e.target.value || 0))} placeholder="积分抵扣" />
+      <section className="rounded-3xl border border-mist/70 bg-gradient-to-br from-white to-ivory p-5 shadow-[0_14px_34px_-26px_rgba(28,28,28,0.9)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="text-base font-semibold text-ink">订单中心</h3>
+            <p className="mt-1 text-sm text-ink/70">查看已生成订单、待支付订单、已支付订单，并在这里完成支付。</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              className="rounded-lg border border-mist px-3 py-2 text-sm"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="用户名"
+            />
+            <input
+              className="rounded-lg border border-mist px-3 py-2 text-sm"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="邮箱"
+            />
+            <button
+              type="button"
+              onClick={handleActivateMyOrders}
+              disabled={busy}
+              className="rounded-lg bg-ink px-4 py-2 text-sm text-ivory disabled:opacity-60"
+            >
+              {busy ? "处理中..." : "刷新订单"}
+            </button>
+          </div>
         </div>
-        {user ? <p className="mt-2 text-xs text-ink/70">当前用户：{user.name}（ID {user.id}）</p> : null}
       </section>
 
-      <section className="rounded-2xl border border-mist/70 bg-white/85 p-5">
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-mist/70 bg-white/90 p-4 shadow-[0_10px_28px_-24px_rgba(30,30,30,0.85)]">
+          <p className="text-xs text-ink/60">全部订单</p>
+          <p className="mt-1 text-xl font-semibold text-ink">{orders.length}</p>
+        </div>
+        <div className="rounded-2xl border border-mist/70 bg-white/90 p-4 shadow-[0_10px_28px_-24px_rgba(30,30,30,0.85)]">
+          <p className="text-xs text-ink/60">待支付</p>
+          <p className="mt-1 text-xl font-semibold text-ink">{pendingCount}</p>
+        </div>
+        <div className="rounded-2xl border border-mist/70 bg-white/90 p-4 shadow-[0_10px_28px_-24px_rgba(30,30,30,0.85)]">
+          <p className="text-xs text-ink/60">已支付</p>
+          <p className="mt-1 text-xl font-semibold text-ink">{paidCount}</p>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-mist/70 bg-gradient-to-br from-white to-ivory p-5 shadow-[0_14px_34px_-26px_rgba(28,28,28,0.9)]">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-ink">商品库存与下单</h3>
-          <span className="text-sm text-ink/70">购物车金额：¥{cartTotal.toFixed(2)}</span>
+          <h3 className="text-base font-semibold text-ink">订单列表</h3>
+          <div className="flex items-center gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => setOrderFilter("all")}
+              className={`rounded-full px-2.5 py-1 ${orderFilter === "all" ? "bg-ink text-ivory" : "border border-mist text-ink/70"}`}
+            >
+              全部
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrderFilter("pending")}
+              className={`rounded-full px-2.5 py-1 ${orderFilter === "pending" ? "bg-ink text-ivory" : "border border-mist text-ink/70"}`}
+            >
+              待支付
+            </button>
+            <button
+              type="button"
+              onClick={() => setOrderFilter("paid")}
+              className={`rounded-full px-2.5 py-1 ${orderFilter === "paid" ? "bg-ink text-ivory" : "border border-mist text-ink/70"}`}
+            >
+              已支付
+            </button>
+          </div>
         </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {products.map((product) => {
-            const line = cart.find((item) => item.product_id === product.id);
-            return (
-              <div key={product.id} className="rounded-xl border border-mist p-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-medium text-ink">{product.name}</p>
-                  <p className="text-sm text-ink/70">¥{product.price}</p>
-                </div>
-                <p className="mt-1 text-xs text-ink/60">库存 {product.stock} · 状态 {product.status}</p>
-                {product.low_stock ? <p className="mt-1 text-xs text-amber-700">低库存预警：低于 {product.low_stock_threshold}</p> : null}
-                <div className="mt-3 flex items-center gap-2">
-                  <button type="button" onClick={() => toggleCart(product.id)} className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs">
-                    {line ? "移出购物车" : "加入购物车"}
-                  </button>
-                  {line ? (
-                    <input
-                      className="w-20 rounded-lg border border-mist px-2 py-1 text-xs"
-                      type="number"
-                      min={1}
-                      value={line.quantity}
-                      onChange={(e) => updateQuantity(product.id, Number(e.target.value || 1))}
-                    />
-                  ) : null}
-                  <button type="button" onClick={() => handleView(product.id)} className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs">
-                    模拟浏览
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <button
-          type="button"
-          onClick={handleCreateOrder}
-          disabled={busy}
-          className="mt-4 rounded-lg bg-ink px-4 py-2 text-sm text-ivory disabled:opacity-60"
-        >
-          {busy ? "处理中..." : "创建订单"}
-        </button>
-      </section>
 
-      <section className="rounded-2xl border border-mist/70 bg-white/85 p-5">
-        <h3 className="mb-3 text-base font-semibold text-ink">订单历史与支付</h3>
+        {filteredOrders.length === 0 ? <p className="text-sm text-ink/65">暂无订单记录，请先去晶石商店下单。</p> : null}
+
         <div className="space-y-2">
-          {orders.length === 0 ? <p className="text-sm text-ink/65">暂无订单</p> : null}
-          {orders.map((order) => (
-            <div key={order.id} className="rounded-xl border border-mist p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-medium text-ink">{order.order_no}</p>
-                <p className="text-xs text-ink/70">{order.payment_status}</p>
+          {filteredOrders.map((order) => (
+            <div key={order.id} className="rounded-2xl border border-mist bg-white/85 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium text-ink">{order.order_no}</p>
+                  <p className="text-xs text-ink/65">{new Date(order.created_at).toLocaleString()}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-ink">¥{order.total_amount}</p>
+                  <p className="text-xs text-ink/65">{order.payment_status === "paid" ? "已支付" : "待支付"}</p>
+                </div>
               </div>
-              <p className="mt-1 text-xs text-ink/65">
-                金额 ¥{order.total_amount} · 商品数 {order.items.length} · 积分抵扣 {order.points_used}
-              </p>
+
+              <p className="mt-1 text-xs text-ink/65">商品数 {order.items.length} · 支付状态 {order.payment_status}</p>
+
               {order.payment_status !== "paid" ? (
-                <button type="button" onClick={() => handlePayOrder(order.id)} className="mt-2 rounded-lg border border-stone-300 px-3 py-1.5 text-xs">
-                  立即支付（模拟）
-                </button>
+                <div className="mt-2 space-y-2">
+                  {payingOrderId === order.id ? (
+                    <div className="grid gap-2 rounded-lg border border-mist p-2 md:grid-cols-2">
+                      <select
+                        className="rounded-lg border border-mist px-2 py-1 text-xs"
+                        value={paymentMethod}
+                        onChange={(e) => setPaymentMethod(e.target.value as ShopPaymentMethod)}
+                      >
+                        <option value="wechat_pay">微信支付</option>
+                        <option value="alipay">支付宝</option>
+                        <option value="bank_card">银行卡</option>
+                        <option value="mock">测试通道</option>
+                      </select>
+                      <input
+                        className="rounded-lg border border-mist px-2 py-1 text-xs"
+                        value={payerName}
+                        onChange={(e) => setPayerName(e.target.value)}
+                        placeholder="付款人（可选）"
+                      />
+                      <input
+                        className="rounded-lg border border-mist px-2 py-1 text-xs md:col-span-2"
+                        value={payCouponCode}
+                        onChange={(e) => setPayCouponCode(e.target.value)}
+                        placeholder="优惠券代码（支付时使用）"
+                      />
+                      <div className="flex items-center gap-2 md:col-span-2">
+                        <button
+                          type="button"
+                          onClick={() => handlePayOrder(order.id)}
+                          className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs"
+                        >
+                          确认支付
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayingOrderId(null)}
+                          className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs"
+                        >
+                          取消
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPayingOrderId(order.id)}
+                      className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs"
+                    >
+                      去支付
+                    </button>
+                  )}
+                </div>
               ) : (
-                <p className="mt-2 text-xs text-emerald-700">已支付并触发发货请求</p>
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-emerald-700">已支付完成</p>
+                  <button
+                    type="button"
+                    onClick={() => handleLoadLogistics(order.id)}
+                    disabled={loadingLogisticsOrderId === order.id}
+                    className="rounded-lg border border-stone-300 px-3 py-1.5 text-xs disabled:opacity-50"
+                  >
+                    {loadingLogisticsOrderId === order.id ? "物流加载中..." : "查看物流"}
+                  </button>
+                  {logisticsMap[order.id] ? (
+                    <div className="rounded-xl border border-mist/70 bg-ivory/45 p-2">
+                      <p className="text-xs font-medium text-ink">
+                        当前进度：{logisticsMap[order.id].current_label}（{logisticsMap[order.id].tracking_no}）
+                      </p>
+                      <div className="mt-1 space-y-1">
+                        {logisticsMap[order.id].events.map((event) => (
+                          <div key={`${order.id}-${event.step_code}-${event.occurred_at}`} className="text-xs text-ink/70">
+                            {new Date(event.occurred_at).toLocaleString()} · {event.step_label}
+                            {event.detail ? ` · ${event.detail}` : ""}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               )}
             </div>
           ))}
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-mist/70 bg-white/85 p-5">
-          <h3 className="mb-3 text-base font-semibold text-ink">个性化推荐</h3>
-          {recommendations.length === 0 ? <p className="text-sm text-ink/65">暂无推荐数据（先模拟浏览或下单）</p> : null}
-          <div className="space-y-2">
-            {recommendations.map((item) => (
-              <p key={item.product_id} className="text-sm text-ink/80">
-                商品 ID {item.product_id} · 推荐分 {item.score.toFixed(1)}
-              </p>
-            ))}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-mist/70 bg-white/85 p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-base font-semibold text-ink">销售与库存报表</h3>
-            <select
-              className="rounded-lg border border-mist px-2 py-1 text-xs"
-              value={rangeType}
-              onChange={(e) => setRangeType(e.target.value as "daily" | "weekly" | "monthly")}
-            >
-              <option value="daily">日</option>
-              <option value="weekly">周</option>
-              <option value="monthly">月</option>
-            </select>
-          </div>
-          {summary ? (
-            <div className="space-y-1 text-sm text-ink/80">
-              <p>销售额：¥{summary.total_sales_amount}</p>
-              <p>已支付订单：{summary.paid_order_count}</p>
-              <p>低库存商品：{summary.low_stock_product_count}</p>
-              <p>商品总数：{summary.total_product_count}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-ink/65">报表加载中...</p>
-          )}
-        </div>
-      </section>
-
-      {toast ? <p className="rounded-xl border border-mist bg-white px-4 py-3 text-sm text-ink/80">{toast}</p> : null}
+      {toast ? <p className="rounded-2xl border border-mist bg-white px-4 py-3 text-sm text-ink/80 shadow-[0_10px_28px_-24px_rgba(30,30,30,0.85)]">{toast}</p> : null}
     </div>
   );
 }

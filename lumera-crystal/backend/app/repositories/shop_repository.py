@@ -12,6 +12,7 @@ from app.models import (
     ShipmentRequest,
     ShopOrder,
     ShopOrderItem,
+    ShopPayment,
     ShopUser,
     UserBehaviorEvent,
 )
@@ -102,7 +103,7 @@ class ShopRepository:
         total = self.db.scalar(select(func.count()).select_from(ShopOrder).where(where_clause)) or 0
         stmt = (
             select(ShopOrder)
-            .options(selectinload(ShopOrder.items))
+            .options(selectinload(ShopOrder.items), selectinload(ShopOrder.payments))
             .where(where_clause)
             .order_by(desc(ShopOrder.created_at))
             .offset((page - 1) * page_size)
@@ -111,7 +112,53 @@ class ShopRepository:
         return list(self.db.scalars(stmt)), total
 
     def get_order(self, order_id: int) -> ShopOrder | None:
-        return self.db.scalar(select(ShopOrder).options(selectinload(ShopOrder.items)).where(ShopOrder.id == order_id))
+        return self.db.scalar(
+            select(ShopOrder)
+            .options(selectinload(ShopOrder.items), selectinload(ShopOrder.payments))
+            .where(ShopOrder.id == order_id)
+        )
+
+    def create_payment_attempt(
+        self,
+        *,
+        payment_no: str,
+        order_id: int,
+        method: str,
+        amount: Decimal,
+        payment_reference: str,
+        raw_payload: str,
+    ) -> ShopPayment:
+        item = ShopPayment(
+            payment_no=payment_no,
+            order_id=order_id,
+            method=method,
+            amount=amount,
+            status="initiated",
+            payment_reference=payment_reference,
+            raw_payload=raw_payload,
+        )
+        self.db.add(item)
+        self.db.flush()
+        return item
+
+    def mark_payment_succeeded(self, payment: ShopPayment) -> ShopPayment:
+        payment.status = "succeeded"
+        payment.failure_reason = ""
+        payment.paid_at = datetime.utcnow()
+        self.db.add(payment)
+        self.db.flush()
+        return payment
+
+    def mark_payment_failed(self, payment: ShopPayment, reason: str) -> ShopPayment:
+        payment.status = "failed"
+        payment.failure_reason = reason[:255]
+        self.db.add(payment)
+        self.db.flush()
+        return payment
+
+    def list_payments_by_order(self, *, order_id: int) -> list[ShopPayment]:
+        stmt = select(ShopPayment).where(ShopPayment.order_id == order_id).order_by(desc(ShopPayment.created_at))
+        return list(self.db.scalars(stmt))
 
     def add_shipment_request(self, *, order_id: int, payload: str) -> ShipmentRequest:
         request = ShipmentRequest(order_id=order_id, status="requested", payload=payload)

@@ -80,6 +80,10 @@ class Settings(BaseSettings):
     news_api_key_prefix: str = "Bearer"
     news_api_default_limit: int = 5
 
+    logistics_service_enabled: bool = True
+    logistics_service_base_url: str = "http://localhost:8010/api/v1/logistics"
+    logistics_service_timeout_seconds: int = 8
+
     database_url: str = "postgresql+psycopg://postgres:123456@localhost:6543/lumera"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
